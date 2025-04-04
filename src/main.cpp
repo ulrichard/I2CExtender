@@ -1,6 +1,7 @@
-#include <Arduino.h>
-#include <Servo_ATTinyCore.h>
-#include <Wire.h>
+#include "TinyWireS.h"
+#include "Servo8Bit.h"
+#include <avr/eeprom.h>
+#include <util/delay.h>
 
 // https://learn.sparkfun.com/tutorials/tiny-avr-programmer-hookup-guide/attiny85-use-hints
 // https://cdn.sparkfun.com/assets/2/8/b/a/a/Tiny_QuickRef_v2_2.pdf
@@ -20,6 +21,14 @@
 // 7  PB2 I2C
 // 8  Power
 
+// ATMEL ATTINY45 / ATTINY85
+//                                    +-\/-+
+// PCINT5/!RESET/ADC0/dW        PB5  1|    |8  Vcc
+// PCINT3/XTAL1/CLKI/!OC1B/ADC3 PB3  2|    |7  PB2 SCK/USCK/ADC1/T0/INTO/PCINT2
+// PCINT4/XTAL2/CLKO/OC1B/ADC2  PB4  3|    |6  PB1 MISO/D0/OC0B/OC1A/PCINT1            pwm1
+//                              GND  4|    |5  PB0 MOSI/D1/SDA/AIN0/!OC0A/AREF/PCINT0  pwm0
+//                                    +----+
+
 
 // PWM pins are: PB0, PB1, PB3, PB4
 // digital input: PB0, PB1, PB2, PB3, PB4
@@ -38,14 +47,49 @@
 #define RELAY_HIGH   0x26
 #define RELAY_LOW    0x27
 
-volatile byte myArray[10];
+volatile uint8_t myArray[10];
 volatile bool flag = false;
+Servo8Bit myservo;
 
 int servoPin = 0;
 int relayPin = 0;
-Servo myservo;
+
+static const uint8_t  i2cSlaveAddr = 21; //0x40; // ToDo: configure correctly
 
 void handleEvent();
+bool receive();
+
+int main()
+{
+	_delay_ms(100); // give the master some time to grab the i2c bus
+
+	DDRB = (1 << PB1); // Set Port B pin 1 as output for the relais
+
+    TinyWireS.begin(i2cSlaveAddr);
+
+    while(1)
+    {
+  		if(receive)
+		{
+		    handleEvent();
+		}
+	}
+}
+
+bool receive() {
+    	if(TinyWireS.available())
+    {
+        for(int i=0; i<10 && TinyWireS.available(); i++)
+        {
+            	const uint8_t ddd = TinyWireS.receive();
+            myArray[i] = ddd;
+        }
+        return true;
+    }
+    else
+        return false;
+}
+
 
 bool isPinAllowed(int pin) {
   return true;
@@ -63,21 +107,13 @@ bool isPinAllowed(int pin) {
   // return false;
 }
 
-void receiveEvent(int n) {
-  for(int i=0; i<n; i++)
-  {
-    myArray[i] = Wire.read();
-  }
-  flag = true;
-}
-
 void handleEvent() {
   switch ( myArray[0] ) {
     case SERVO_ANGLE:
       {
-        //if ( servoPin != 0 ) {
-          myservo.write(myArray[1]);        
-        //}
+        if ( servoPin != 0 ) {
+          myservo.write(myArray[1]);
+        }
       }
       break;
     case SERVO_ATTACH:
@@ -93,7 +129,7 @@ void handleEvent() {
     case RELAY_ATTACH:
       if ( isPinAllowed(myArray[1]) ) {
         relayPin = myArray[1];
-        pinMode(relayPin,OUTPUT);
+        //pinMode(relayPin,OUTPUT);
       }
       break;
     case RELAY_DETACH:
@@ -103,12 +139,14 @@ void handleEvent() {
       break;
     case RELAY_HIGH:
       if ( relayPin != 0 ) {        
-        digitalWrite(relayPin,HIGH);
+        //digitalWrite(relayPin,HIGH);
+        PORTB |= (1 << PB1);  //PB1 High
       }
       break;
     case RELAY_LOW:
       if ( relayPin != 0 ) {
-        digitalWrite(relayPin,LOW);
+        //digitalWrite(relayPin,LOW);
+        PORTB &= ~(1 << PB1); //PB1 Low
       }
       break;
     default:
@@ -117,22 +155,3 @@ void handleEvent() {
 
 }
 
-void setup() {
-  // myservo.attach(4);
-  // for(int i=0;(i<5);i++) {
-  //   myservo.write(0);
-  //   delay(500);
-  //   myservo.write(30);
-  //   delay(500);
-  // }
-
-  Wire.begin(21);
-  Wire.onReceive(receiveEvent);
-}
-
-void loop() {
-  if ( flag == true ) {
-    handleEvent();
-    flag = false;
-  }
-}
